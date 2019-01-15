@@ -1,2 +1,0 @@
-R	290112114407Z	190115114453Z,superseded	01	unknown	/C=UA/O=Arest Inc./CN=arest-home.pp.ua/emailAddress=arest@arest-home.pp.ua
-V	290112114544Z		02	unknown	/C=UA/O=Arest Inc./CN=arest@arest-home.pp.ua/emailAddress=arest@arest-home.pp.ua

@@ -1,1 +1,0 @@
-openssl ca -batch -keyfile sub-ca/private/sub-ca.key -cert sub-ca/sub-ca.crt -in arest-home.pp.ua/arest-home.pp.ua.csr -passin pass:PerekatipoleSub -out arest-home.pp.ua/arest-home.pp.ua.crt -extensions xpserver_ext -extfile xpextensions  -config arest-home.pp.ua.cnf
