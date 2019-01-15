@@ -1,0 +1,391 @@
+######################################################################
+#
+#	Make file to be installed in /etc/raddb/certs to enable
+#	the easy creation of certificates.
+#
+#	See the README file in this directory for more information.
+#
+#	$Id: 16447a023d2cdce2d16d39cf31bcde4dba600df5 $
+#
+######################################################################
+
+srv		= arest-home.pp.ua
+clt		= arest@arest-home.pp.ua
+root		= root-ca
+sub		= sub-ca
+BASE		= 
+PKCS11PIN	= 3128443
+PKCS11MASTERPIN	= Perekatipole
+PKCS11_MODULE = /usr/lib/librtpkcs11ecp.so
+#PKCS11_MODULE = /usr/lib/libeTPkcs11.so
+SUBPASS		= PerekatipoleSub
+ROOTPASS	= PerekatipoleRoot
+SAN="DNS:arest-home.pp.ua,DNS:*.arest-home.pp.ua,DNS:arest-home.loc,DNS:*.arest-home.loc,IP:193.93.219.55,IP:192.168.51.65,IP:192.168.51.70"
+
+
+source_dirs = . $(root) $(sub) $(srv) $(clt)
+DH_KEY_SIZE	= 512
+OPENSSL		= openssl
+PKCS11TOOL	= pkcs11-tool --module $(PKCS11_MODULE)
+PKCS15TOOL	= pkcs15-init
+SSHKEYGEN	= ssh-keygen
+EXTERNAL_CA	= $(wildcard external_ca.*)
+
+ifneq "$(EXTERNAL_CA)" ""
+PARTIAL		= -partial_chain
+endif
+
+##
+##  Set the passwords
+#
+include passwords.mk
+
+######################################################################
+#
+#  Make the necessary files, but not clt certificates.
+#
+######################################################################
+SOURCES := root-ca sub-ca srv clt 
+
+$(SOURCES): 
+	$(MAKE) -C $@
+
+.PHONY: all # Make everything
+all: root-ca sub-ca srv clt
+
+.PHONY: $(clt) # Make client certificate and key
+$(clt): $(clt).pem $(clt).ssh.pub $(clt).p12
+
+.PHONY: $(root)	# Make Root CA infrastructure
+$(root): root.index.txt root.serial $(root).der $(root).key.der $(root).pub.der
+
+.PHONY: $(sub) # Make Sub CA infrastructure
+$(sub): sub.index.txt sub.serial $(root) $(sub).der $(sub).pub.der ca-chain.pem $(sub).ssh.pub
+
+.PHONY: $(srv) # Make server certificate and key
+$(srv): $(sub) $(srv).pem $(srv).ssh.pub $(srv).p12 $(srv).vrfy
+
+#.PHONY: inner-$(SRV)
+#inner-$(SRV): inner-$(SRV).pem inner-$(SRV).vrfy
+
+.PHONY: verify # Verify server and client certficates
+verify: $(srv).vrfy $(clt).vrfy
+
+.PHONY: pkcs11 # Put all certificates and keys to PKCS11 token
+pkcs11: $(root).pkcs11 $(sub).pkcs11 $(srv).pkcs11 $(clt).pkcs11
+
+.PHONY: crl # make Root CA and Sub CA certficate revokation lists (CRL)
+crl:	$(root).crl $(sub).crl
+
+.PHONY: clean-pkcs11 # Clean PKCS11 token (be careful!)
+clean-pkcs11: 
+	$(PKCS11TOOL) --init-token --label "Arest ruToken" --so-pin $(PKCS11MASTERPIN)
+	$(PKCS11TOOL) --init-pin --login --pin $(PKCS11PIN) --so-pin $(PKCS11MASTERPIN)
+	$(PKCS15TOOL) --erase-card -p rutoken_ecp -l "Arest ruToken" 
+	$(PKCS15TOOL) --create-pkcs15 --so-pin $(PKCS11MASTERPIN) --so-puk ""
+	$(PKCS15TOOL) --store-pin --label "User PIN" --auth-id 02 --pin $(PKCS11PIN) --puk "" --so-pin $(PKCS11MASTERPIN) --finalize
+
+passwords.mk: $(srv).cnf $(sub).cnf $(clt).cnf $(root).cnf 
+# inner-$(SRVCNF)
+	@echo "PASSWORD_SERVER	= '$(shell grep output_password srv.cnf | sed 's/.*=//;s/^ *//')'"		> $@
+#	@echo "PASSWORD_INNER	= '$(shell grep output_password inner-srv.cnf | sed 's/.*=//;s/^ *//')'"	>> $@
+	@echo "PASSWORD_ROOT_CA	= '$(shell grep output_password root-ca.cnf | sed 's/.*=//;s/^ *//')'"		>> $@
+	@echo "PASSWORD_SUB_CA	= '$(shell grep output_password sub-ca.cnf | sed 's/.*=//;s/^ *//')'"		>> $@
+	@echo "PASSWORD_CLIENT	= '$(shell grep output_password clt.cnf | sed 's/.*=//;s/^ *//')'"		>> $@
+	@echo "USER_NAME	= '$(shell grep emailAddress clt.cnf | grep '@' | sed 's/.*=//;s/^ *//')'"	>> $@
+	@echo "ROOT_CA_DEFAULT_DAYS  = '$(shell grep default_days root-ca.cnf | sed 's/.*=//;s/^ *//')'"			>> $@
+	@echo "SUB_CA_DEFAULT_DAYS  = '$(shell grep default_days sub-ca.cnf | sed 's/.*=//;s/^ *//')'"			>> $@
+
+######################################################################
+#
+#  Diffie-Hellman parameters
+#
+######################################################################
+dh:
+	$(OPENSSL) dhparam -out dh.pem -2 $(DH_KEY_SIZE)
+
+######################################################################
+#
+#  Make root-ca dir
+#
+######################################################################
+$(root)-dir:
+	mkdir -p $(ROOT)/private
+	chmod 755 $(ROOT)/private
+
+$(sub)-dir:
+	mkdir -p $(SUB)/private
+	chmod 755 $(SUB)/private
+
+$(clt)-dir:
+	mkdir -p $(CLT)/private
+	chmod 755 $(CLT)/private
+
+$(srv)-dir:
+	mkdir -p $(SRV)/private
+	chmod 755 $(SRV)/private
+######################################################################
+#
+#  Create a new self-signed CA certificate
+#
+######################################################################
+$(root).key $(root).crt: $(root).cnf
+	@[ -d $(ROOT)/private ] || $(MAKE) root-ca-dir
+	@[ -f $(ROOT)/index.txt ] || $(MAKE) root.index.txt
+	@[ -f $(ROOT)/serial ] || $(MAKE) root.serial
+	$(OPENSSL) req -new -x509 -keyout $(ROOTKEY) -out $(ROOTCRT) \
+		-days $(ROOT_CA_DEFAULT_DAYS) -config $(ROOTCNF)
+	chmod g+r $(ROOTKEY)
+
+$(root).der: $(root).crt
+	$(OPENSSL) x509 -inform PEM -outform DER -in $(ROOTCRT) -out $(ROOTDER)
+
+$(root).key.der: $(root).key
+	$(OPENSSL) rsa -inform PEM -outform DER -in $(ROOTKEY) -out $(ROOTKEYDER)
+
+$(root).pub:
+	$(OPENSSL) rsa -pubout -in $(ROOTKEY) -out $(ROOTPUB)
+
+$(root).pub.der: $(root).pub
+	$(OPENSSL) rsa -pubin -in $(ROOTPUB) -pubout -outform DER -out $(ROOTPUBDER) 
+
+.PHONY: $(root).pkcs11 # Put Root CA certificate and key to PKCS11 token
+$(root).pkcs11:	$(root).der $(root).key.der $(root).pub.der
+	$(PKCS11TOOL) -y cert -w $(ROOTDER) --label "Arest Root CA Certificate" --attr-from $(ROOTDER) --pin $(PKCS11PIN) -l
+	$(PKCS11TOOL) -y privkey -w $(ROOTKEYDER) --label "Arest Root CA Private Key" --attr-from $(ROOTDER) --pin $(PKCS11PIN) -l
+	$(PKCS11TOOL) -y pubkey -w $(ROOTPUBDER) --label "Arest Root CA Public Key" --attr-from $(ROOTDER) --pin $(PKCS11PIN) -l
+
+.PHONY: $(root).crl # Make Root CA certficate revokation list (CRL)
+$(root).crl: $(root).key
+	$(OPENSSL) gencrl -out $(ROOT).crl
+######################################################################
+#
+#  Create a new Sub CA certificate
+#
+######################################################################
+
+$(sub).csr $(sub).key: $(sub).cnf
+	@[ -d $(SUB)/private ] || $(MAKE) sub-ca-dir
+	@[ -f $(SUB)/index.txt ] || $(MAKE) sub.index.txt
+	@[ -f $(SUB)/serial ] || $(MAKE) sub.serial
+	$(OPENSSL) req -new -keyout $(SUBKEY) -out $(SUBCSR) \
+		-days $(SUB_CA_DEFAULT_DAYS) -config $(SUBCNF)
+	chmod g+r $(SUBKEY)
+
+$(sub).crt: $(root) $(sub).csr $(sub).key
+	$(OPENSSL) ca -batch -keyfile $(ROOTKEY) -cert $(ROOTCRT) -in $(SUBCSR)  -passin pass:$(ROOTPASS) -out $(SUBCRT) -config $(ROOTCNF)
+
+
+ca-chain.pem: $(root).crt $(sub).crt
+	@cat $(ROOTCRT) $(SUBCRT) > $@
+
+$(sub).der: $(sub).crt
+	$(OPENSSL) x509 -inform PEM -outform DER -in $(SUBCRT) -out $(SUBDER)
+
+$(sub).key.der: $(sub).key
+	$(OPENSSL) rsa -inform PEM -outform DER -in $(SUBKEY) -out $(SUBKEYDER)
+
+$(sub).pub:
+	$(OPENSSL) rsa -pubout -in $(SUBKEY) -out $(SUBPUB)
+
+$(sub).pub.der:	$(sub).pub
+	$(OPENSSL) rsa -pubin -in $(SUBPUB) -pubout -outform DER -out $(SUBPUBDER) 
+
+$(sub).rsa.pub:
+	$(OPENSSL) rsa -RSAPublicKey_out -in $(SUBKEY) -out $(SUBRSA)
+
+$(sub).ssh.pub:
+	$(SSHKEYGEN) -i -f $(SUBPUB) -m PKCS8 > $(SUBSSH)
+
+.PHONY: $(sub).pkcs11 # Put Sub CA certificate and key to PKCS11 token
+$(sub).pkcs11:	$(sub).der $(sub).key.der $(sub).pub.der
+	$(PKCS11TOOL) -y cert -w $(SUBDER) --label "Arest Sub CA Certificate" --attr-from $(SUBDER) --pin $(PKCS11$PIN) -l
+	$(PKCS11TOOL) -y privkey -w $(SUBKEYDER) --label "Arest Sub CA Private Key" --attr-from $(SUBDER) --pin $(PKCS11PIN) -l
+	$(PKCS11TOOL) -y pubkey -w $(SUBPUBDER) --label "Arest Sub CA Public Key" --attr-from $(SUBDER) --pin $(PKCS11PIN) -l
+	
+.PHONY: $(sub).crl # Make Sub CA certifcate revokation list (CRL)
+$(sub).crl:	$(sub).key
+	$(OPENSSL) gencrl -out $(SUB).crl
+	
+######################################################################
+#
+#  Create a new srv certificate, signed by the above CA.
+#
+######################################################################
+$(srv).csr $(srv).key: $(srv).cnf
+	@[ -d $(SRV)/private ] || $(MAKE) $(srv)-dir
+	SAN=$(SAN) $(OPENSSL) req -new  -out $(SRVCSR) -keyout $(SRVKEY) -config $(SRVCNF)
+	chmod g+r $(SRVKEY)
+
+$(srv).crt: $(srv).csr $(sub).crt $(sub).key
+	SAN=$(SAN) $(OPENSSL) ca -batch -keyfile $(SUBKEY) -cert $(SUBCRT) -in $(SRVCSR)  -passin pass:$(SUBPASS) -out $(SRVCRT) -extensions xpserver_ext -extfile xpextensions -config $(SRVCNF)
+
+$(srv).der: $(srv).crt
+	$(OPENSSL) x509 -inform PEM -outform DER -in $(SRVCRT) -out $(SRVDER)
+
+$(srv).key.der: $(srv).key
+	$(OPENSSL) rsa -inform PEM -outform DER -in $(SRVKEY) -out $(SRVKEYDER)
+
+$(srv).pub:
+	$(OPENSSL) rsa -pubout -in $(SRVKEY) -out $(SRVPUB)
+
+$(srv).pub.der:	$(srv).pub
+	$(OPENSSL) rsa -pubin -in $(SRVPUB) -pubout -outform DER -out $(SRVPUBDER) 
+
+$(srv).rsa.pub:
+	$(OPENSSL) rsa -RSAPublicKey_out -in $(SRVKEY) -out $(SRVRSA)
+
+$(srv).ssh.pub: $(srv).crt
+	$(SSHKEYGEN) -i -f $(SRVCRT) -m PKCS8 > $(SRVSSH)
+
+
+$(srv).p12: $(srv).crt $(srv).key
+	$(OPENSSL) pkcs12 -export -in $(SRVCRT) -inkey $(SRVKEY) -out $(SRVP12) -passin pass:$(PASSWORD_SERVER) -passout pass:$(PASSWORD_SERVER)
+	chmod g+r $(SRVP12)
+
+$(srv).pem: $(srv).p12
+	$(OPENSSL) pkcs12 -in $(SRVP12) -out $(SRVPEM) -passin pass:$(PASSWORD_SERVER) -passout pass:$(PASSWORD_SERVER)
+	chmod g+r $(SRVPEM)
+
+.PHONY: $(srv).vrfy # Verify server certificate using ca-chain.pem file
+$(srv).vrfy: ca-chain.pem
+	@$(OPENSSL) verify $(PARTIAL) -CAfile ca-chain.pem $(SRV).crt
+
+.PHONY: $(srv).pkcs11 # Put server certificate and key to PKCS11 token
+$(srv).pkcs11:	$(srv).der $(srv).key.der $(srv).pub.der
+	$(PKCS11TOOL) -y cert -w $(SRVDER) --label "arest-home.pp.ua Certificate" --attr-from $(SRVDER) --pin $(PKCS11PIN) -l
+	$(PKCS11TOOL) -y privkey -w $(SRVKEYDER) --label "arest-home.pp.ua Private Key" --attr-from $(SRVDER) --pin $(PKCS11PIN) -l
+	$(PKCS11TOOL) -y pubkey -w $(SRVPUBDER) --label "arest-home.pp.ua Public Key" --attr-from $(SRVDER) --pin $(PKCS11PIN) -l
+	
+######################################################################
+#
+#  Create a new clt certificate, signed by the the above srv
+#  certificate.
+#
+######################################################################
+$(clt).csr $(clt).key: $(clt).cnf
+	@[ -d $(SUB)/private ] || $(MAKE) $(clt)-dir
+	CN=$(CN) $(OPENSSL) req -new  -out $(CLTCSR) -keyout $(CLTKEY) -config $(CLTCNF)
+	chmod g+r $(CLTCRT)
+
+$(clt).crt: $(clt).csr $(sub).crt $(sub).key
+	CN=$(CN) $(OPENSSL) ca -batch -keyfile $(SUBKEY) -cert $(SUBCRT) -in $(CLTCSR)  -key $(PASSWORD_SUB_CA) -out $(CLTCRT) -extensions xpclient_ext -extfile xpextensions -config $(CLTCNF)
+
+$(clt).der: $(clt).crt
+	$(OPENSSL) x509 -inform PEM -outform DER -in $(CLTCRT) -out $(CLTDER)
+
+$(clt).key.der: $(clt).key
+	$(OPENSSL) rsa -inform PEM -outform DER -in $(CLTKEY) -out $(CLTKEYDER)
+
+$(clt).pub:	$(clt).key
+	$(OPENSSL) rsa -pubout -in $(CLTKEY) -out $(CLTPUB)
+
+$(clt).pub.der:	$(clt).pub
+	$(OPENSSL) rsa -pubin -in $(CLTPUB) -pubout -outform DER -out $(CLTPUBDER) 
+
+$(clt).rsa.pub:	$(clt).key
+	$(OPENSSL) rsa -RSAPublicKey_out -in $(CLTKEY) -out $(CLTRSA)
+
+$(clt).ssh.pub:	$(clt).crt
+	$(SSHKEYGEN) -i -f $(CLTCRT) -m PKCS8 > $(CLTSSH)
+
+$(clt).p12: $(clt).crt $(clt).key
+	$(OPENSSL) pkcs12 -export -in $(CLTCRT) -inkey $(CLTKEY) -out $(CLTP12)  -passin pass:$(PASSWORD_CLIENT) -passout pass:$(PASSWORD_CLIENT)
+	chmod g+r $(CLTP12)
+
+$(clt).pem: $(clt).p12
+	$(OPENSSL) pkcs12 -in $(CLTP12) -out $(CLTPEM) -passin pass:$(PASSWORD_CLIENT) -passout pass:$(PASSWORD_CLIENT)
+	chmod g+r $(CLTPEM)
+	cp $(CLTPEM) $(USER_NAME).pem
+
+.PHONY: $(clt).vrfy # Verify client certifcate using ca-chain.pem
+$(clt).vrfy: $(sub).crt $(clt).crt
+	c_rehash ./$(sub)
+	$(OPENSSL) verify -CApath $(SUB) $(CLTCRT)
+
+.PHONY: $(clt).pkcs11 # Put client certificate and key to PKCS11 token
+$(clt).pkcs11:	$(clt).der $(clt).key.der $(clt).pub.der
+	$(PKCS11TOOL) -y cert -w $(CLTDER) --label "Orest Pazdriy <arest@arest-home.pp.ua> Certificate" --attr-from $(CLTDER) --pin $(PKCS11PIN) -l
+	$(PKCS11TOOL) -y privkey -w $(CLTKEYDER) --label "Orest Pazdrit <arest@arest-home.pp.ua> Private Key" --attr-from $(CLTDER) --pin $(PKCS11PIN) -l
+	$(PKCS11TOOL) -y pubkey -w $(CLTPUBDER) --label "Orest Pazdriy <arest@arest-home.pp.ua> Public Key" --attr-from $(CLTDER) --pin $(PKCS11PIN) -l
+######################################################################
+#
+#  Create a new inner-srv certificate, signed by the above CA.
+#
+######################################################################
+#inner-$(SRVCSR) inner-$(SRVKEY): inner-$(SRVCNF)
+#	$(OPENSSL) req -new  -out inner-$(SRVCSR) -keyout inner-$(SRVKEY) -config ./inner-$(SRVCNF)
+#	chmod g+r inner-$(SRVKEY)
+#
+#inner-$(SRVCRT): inner-$(SRVCSR) sub-$(SUBKEY) isub-$(SUBCRT)
+#	$(OPENSSL) ca -batch -keyfile $(SUBKEY) -cert $(SUBCRT) -in inner-$(SRVCSR)  -key $(PASSWORD_CA) -out inner-$(SRVCRT) -extensions xpsrv_ext -extfile xpextensions -config ./inner-$(SRVCNF)
+#
+#inner-$(SRVP12): inner-$(SRVCRT)
+#	$(OPENSSL) pkcs12 -export -in inner-$(SRVCRT) -inkey inner-$(SRVKEY) -out inner-$(SRVP12)  -passin pass:$(PASSWORD_INNER) -passout pass:$(PASSWORD_INNER)
+#	chmod g+r inner-$(SRVP12)
+#
+#inner-$(SRV): inner-$(SRVP12)
+#	$(OPENSSL) pkcs12 -in inner-$(SRVP12) -out inner-$(SRV) -passin pass:$(PASSWORD_INNER) -passout pass:$(PASSWORD_INNER)
+#	chmod g+r inner-$(SRV)
+#
+#.PHONY: inner-srv.vrfy
+#inner-srv.vrfy: $(SUBCRT)
+#	@$(OPENSSL) verify $(PARTIAL) -CAfile $(SUBCRT) inner-$(SRV)
+#
+######################################################################
+#
+#  Miscellaneous rules.
+#
+######################################################################
+root.index.txt:
+	@[ -d $(ROOT)/private ] || $(MAKE) $(root)-dir
+	@touch $(ROOT)/index.txt
+
+root.serial:
+	@[ -d $(ROOT)/private ] || $(MAKE) $(root)-dir
+	@echo '01' > $(ROOT)/serial
+
+sub.index.txt:
+	@[ -d $(SUB)/private ] || $(MAKE) $(sub)-dir
+	@touch $(SUB)/index.txt
+
+sub.serial:
+	@[ -d $(SUB)/private ] || $(MAKE) $(sub)-dir
+	@echo '01' > $(SUB)/serial
+
+print:
+	$(OPENSSL) x509 -text -in $(SRVCRT)
+
+printca:
+	$(OPENSSL) x509 -text -in $(SUBCRT)
+
+printssh:
+	$(PKCS15TOOL)
+
+clean:
+	@rm -f *~ *old $(CLTCSR) $(CLTKEY) $(CLTCRT) $(CLTP12) $(CLTPUB) $(CLTDER) $(CLTKEYDER) $(CLTPUBDER) $(CLTRSA) $(CLTSSH) $(CLTPEM)
+	@rm -rf $(CLT)
+
+#
+#	Make a target that people won't run too often.
+#
+destroycerts:
+	rm -rf *~ dh *.csr *.crt *.p12 *.der *.pem *.key *.pub ca-chain.pem *index.txt* \
+			*serial*  *\.0 *\.1 $(root) $(sub) $(srv) $(clt)
+
+.PHONY: help # Generate list of targets with descriptions                                                                
+help:                                                                                                                    
+	@grep '^.PHONY: .* #' Makefile | sed 's/\.PHONY: \(.*\) # \(.*\)/\1 \2/' | expand -t20
+
+#.PHONY: list
+#list:	
+# search all include files for targets.
+# ... excluding special targets, and output dynamic rule definitions unresolved.
+#	@for inc in $(MAKEFILE_LIST); do 
+#    		@echo ' =' $$inc '= ' 
+#		@grep -Eo '^[^\.#[:blank:]]+.*:.*' $$inc | grep -v ':=' | cut -f 1 | sort | sed 's/.*/  &/' | sed -n 's/:.*$$//p' | tr $$ \\\ | tr $(open_paren) % | tr $(close_paren) % 
+#	@done
+#
+# to get around escaping limitations:
+#open_paren := \(
+#close_paren := \)

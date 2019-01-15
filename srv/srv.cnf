@@ -1,0 +1,59 @@
+[ default ]
+CN = arest-home.pp.ua
+SAN = DNS:arest-home.pp.ua,DNS:*.arest-home.pp.ua,DNS:arest-home.loc,DNS:*.arest-home.loc,IP:193.93.219.55,IP:192.168.51.65,IP:192.168.51.70
+EMAIL = arest@arest-home.pp.ua
+
+[ ca ]
+default_ca		= CA_default
+
+[ CA_default ]
+dir			= /etc/ssl/FreeradiusCA/sub-ca
+certs			= $dir
+crl_dir			= $dir/crl
+database		= $dir/index.txt
+new_certs_dir		= $dir
+certificate		= $dir/srv.crt
+serial			= $dir/serial
+crl			= $dir/sub-ca.crl
+private_key		= $dir/srv.key
+RANDFILE		= $dir/.rand
+name_opt		= ca_default
+cert_opt		= ca_default
+utf8			= yes
+string_mask		= utf8only
+default_days		= 730
+default_crl_days	= 30
+default_md		= sha256
+preserve		= no
+policy			= policy_match
+
+[ policy_match ]
+countryName		= match
+stateOrProvinceName	= optional
+organizationName	= match
+organizationalUnitName	= optional
+commonName		= supplied
+emailAddress		= optional
+
+[ policy_anything ]
+countryName		= optional
+stateOrProvinceName	= optional
+localityName		= optional
+organizationName	= optional
+organizationalUnitName	= optional
+commonName		= supplied
+emailAddress		= optional
+
+[ req ]
+prompt			= no
+distinguished_name	= server
+default_bits		= 2048
+input_password		= shoamiphio0o
+output_password		= shoamiphio0o
+
+
+[server]
+countryName		= UA 
+organizationName	= Arest Inc.
+emailAddress		= $ENV::EMAIL
+commonName		= $ENV::CN
