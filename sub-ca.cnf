@@ -2,15 +2,15 @@
 default_ca		= CA_default
 
 [ CA_default ]
-dir			= ./sub-ca 
+dir			= /etc/ssl/sub-ca 
 certs			= $dir
 crl_dir			= $dir/crl
 database		= $dir/index.txt
 new_certs_dir		= $dir
-certificate		= $dir/sub-ca.pem
+certificate		= $dir/sub-ca.crt
 serial			= $dir/serial
 crl			= $dir/sub-ca.crl
-private_key		= $dir/private/sub-ca.key
+private_key		= $dir/sub-ca.key
 RANDFILE		= $dir/.rand
 name_opt		= ca_default
 cert_opt		= ca_default
@@ -42,9 +42,10 @@ emailAddress		= optional
 prompt			= no
 distinguished_name	= certificate_authority
 default_bits		= 2048
-input_password		= PerekatipoleSub
-output_password		= PerekatipoleSub
+input_password		= PerekatipoleSubJOZEPH
+output_password		= PerekatipoleSubJOZEPH
 x509_extensions		= v3_ca
+#req_extensions		= v3_ca
 
 [certificate_authority]
 countryName		= UA 
@@ -55,7 +56,7 @@ commonName		= "Arest Sub CA"
 [v3_ca]
 subjectKeyIdentifier	= hash
 authorityKeyIdentifier	= keyid:always,issuer:always
-basicConstraints	= critical,CA:true
+basicConstraints	= critical,CA:true,pathlen:0
 crlDistributionPoints	= URI:http://sub-ca.arest-home.pp.ua/sub-ca.crl
 authorityInfoAccess	= OCSP;URI:http://ocsp.sub-ca.arest-home.pp.ua:9081
 authorityInfoAccess	= caIssuers;URI:http://sub-ca.arest-home.pp.ua/sub-ca.crt

@@ -2,15 +2,15 @@
 default_ca		= CA_default
 
 [ CA_default ]
-dir			= ./root-ca
+dir			= /etc/ssl/root-ca
 certs			= $dir
 crl_dir			= $dir/crl
 database		= $dir/index.txt
 new_certs_dir		= $dir
 certificate		= $dir/root-ca.crt
 serial			= $dir/serial
-crl			= $dir/crl.pem
-private_key		= $dir/private/root-ca.key
+crl			= $dir/root-ca.crl
+private_key		= $dir/root-ca.key
 RANDFILE		= $dir/.rand
 name_opt		= ca_default
 cert_opt		= ca_default
@@ -19,7 +19,7 @@ default_crl_days	= 30
 default_md		= sha256
 preserve		= no
 policy			= policy_match
-crlDistributionPoints	= URI:http://root-ca.arest-home.pp.ua/ca.crl
+crlDistributionPoints	= URI:http://root-ca.arest-home.pp.ua/root-ca.crl
 
 [ policy_match ]
 countryName		= match
@@ -56,6 +56,6 @@ keyUsage		= critical,keyCertSign,cRLSign
 basicConstraints	= critical,CA:true
 subjectKeyIdentifier	= hash
 authorityKeyIdentifier	= keyid:always,issuer:always
-crlDistributionPoints	= URI:http://root-ca.arest-home.pp.ua/ca.crl
+crlDistributionPoints	= URI:http://root-ca.arest-home.pp.ua/root-ca.crl
 authorityInfoAccess	= OCSP;URI:http://ocsp.root-ca.arest-home.pp.ua:9080
 

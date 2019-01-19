@@ -3,8 +3,15 @@
 #
 #  http://support.microsoft.com/kb/814394/en-us
 #
+
+[ xpca_ext ]
+#keyUsage		= critical,keyCertSign,cRLSign
+crlDistributionPoints 	= @cacrl_info
+authorityInfoAccess 	= @caissuer_info
+#extendedKeyUsage 	= serverAuth,clientAuth
+
 [ xpclient_ext ]
-#keyUsage		= nonRepudation,digitalSignature,keyEncipherment
+keyUsage		= digitalSignature,keyEncipherment
 extendedKeyUsage 	= clientAuth,emailProtection,msSmartcardLogin,msEFS,1.3.6.1.5.5.7.3.2
 crlDistributionPoints 	= @crl_info
 authorityInfoAccess 	= @issuer_info
@@ -25,6 +32,12 @@ OCSP;URI.0 		= http://ocsp.sub-ca.arest-home.pp.ua:9081
 [ crl_info ]
 URI.0 			= http://sub-ca.arest-home.pp.ua/sub-ca.crl
 
+[ caissuer_info ]
+caIssuers;URI.0		= http://root-ca.arest-home.pp.ua/root-ca.crt
+OCSP;URI.0 		= http://ocsp.sub-ca.arest-home.pp.ua:9080
+
+[ cacrl_info ]
+URI.0 			= http://root-ca.arest-home.pp.ua/root-ca.crl
 
 [ additional_oids ]
 ArestInc 		= Arest Inc., 1.3.6.1.4.1.47851.1.1

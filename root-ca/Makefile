@@ -21,10 +21,17 @@ PKCS11_MODULE = /usr/lib/librtpkcs11ecp.so
 SUBPASS		= PerekatipoleSub
 ROOTPASS	= PerekatipoleRoot
 SAN="DNS:arest-home.pp.ua,DNS:*.arest-home.pp.ua,DNS:arest-home.loc,DNS:*.arest-home.loc,IP:193.93.219.55,IP:192.168.51.65,IP:192.168.51.70"
-
+TARGET-CRT	= root-ca.crt root-ca.der root-ca.crl
+TARGET-KEY	= root-ca.key
+TARGET-CRL	= root-ca.crl
+DESTCERTDIR	= /etc/ssl 
+DESTWWWDIR	= /etc/apache2/ssl
+DESTKEYDIR	= /etc/ssl/private
+EXPECTHELPER	= expect /etc/ssl/build_link.expect
+INSTALL		= install
 
 source_dirs = . root-ca $(sub)
-DH_KEY_SIZE	= 512
+DH_KEY_SIZE	= 2048
 OPENSSL		= openssl
 PKCS11TOOL	= pkcs11-tool --module $(PKCS11_MODULE)
 PKCS15TOOL	= pkcs15-init
@@ -40,42 +47,31 @@ endif
 #
 include passwords.mk
 
+VPATH = private
 ######################################################################
 #
 #  Make the necessary files, but not clt certificates.
 #
 ######################################################################
 .PHONY: all # Make everything
-all: root-ca dh
+all: root-ca crl
 
 .PHONY: root-ca	# Make Root CA infrastructure
-root-ca: root.index.txt root.serial root-ca.der root-ca.key.der root-ca.pub.der
-
-.PHONY: $(sub) # Make Sub CA infrastructure
-$(sub): sub.index.txt sub.serial root-ca $(sub).der $(sub).pub.der ca-chain.pem $(sub).ssh.pub
-
-.PHONY: $(srv) # Make server certificate and key
-$(srv): $(sub) $(srv).pem $(srv).ssh.pub $(srv).p12 $(srv).vrfy
-
-.PHONY: $(clt) # Make client certificate and key
-$(clt): $(clt).pem $(clt).ssh.pub $(clt).p12
-
-.PHONY: verify # Verify server and client certficates
-verify: $(srv).vrfy $(clt).vrfy
+root-ca: index.txt serial root-ca.der root-ca.key.der root-ca.pub.der
 
 .PHONY: pkcs11 # Put all certificates and keys to PKCS11 token
-pkcs11: root-ca.pkcs11 $(sub).pkcs11 $(srv).pkcs11 $(clt).pkcs11
+pkcs11: root-ca.pkcs11
 
 .PHONY: crl # make Root CA and Sub CA certficate revokation lists (CRL)
-crl:	root-ca.crl $(sub).crl
+crl:	root-ca.crl
 
 .PHONY: clean-pkcs11 # Clean PKCS11 token (be careful!)
 clean-pkcs11: 
-	$(PKCS11TOOL) --init-token --label "Arest ruToken" --so-pin $(PKCS11MASTERPIN)
-	$(PKCS11TOOL) --init-pin --login --pin $(PKCS11PIN) --so-pin $(PKCS11MASTERPIN)
-	$(PKCS15TOOL) --erase-card -p rutoken_ecp -l "Arest ruToken" 
-	$(PKCS15TOOL) --create-pkcs15 --so-pin $(PKCS11MASTERPIN) --so-puk ""
-	$(PKCS15TOOL) --store-pin --label "User PIN" --auth-id 02 --pin $(PKCS11PIN) --puk "" --so-pin $(PKCS11MASTERPIN) --finalize
+	@$(PKCS11TOOL) --init-token --label "Arest ruToken" --so-pin $(PKCS11MASTERPIN)
+	@$(PKCS11TOOL) --init-pin --login --pin $(PKCS11PIN) --so-pin $(PKCS11MASTERPIN)
+	@$(PKCS15TOOL) --erase-card -p rutoken_ecp -l "Arest ruToken" 
+	@$(PKCS15TOOL) --create-pkcs15 --so-pin $(PKCS11MASTERPIN) --so-puk ""
+	@$(PKCS15TOOL) --store-pin --label "User PIN" --auth-id 02 --pin $(PKCS11PIN) --puk "" --so-pin $(PKCS11MASTERPIN) --finalize
 
 passwords.mk: root-ca.cnf 
 # inner-$(SRVCNF)
@@ -98,50 +94,65 @@ dh:
 root-ca.key root-ca.crt: root-ca.cnf
 	@[ -f index.txt ] || $(MAKE) index.txt
 	@[ -f serial ] || $(MAKE) serial
-	$(OPENSSL) req -new -x509 -keyout root-ca.key -out root-ca.crt \
-		-days $(ROOT_CA_DEFAULT_DAYS) -config root-ca.cnf
-	chmod g+r root-ca.key
-	mv root-ca.crt root-ca.crt.text
-	$(OPENSSL) x509 -in root-ca.crt.text -out root-ca.crt
-	rm root-ca.crt.text
+	@$(OPENSSL) req -new -x509 -keyout root-ca.key -out root-ca.crt \
+		-days $(ROOT_CA_DEFAULT_DAYS) -config $?
+	@chmod g+r root-ca.key
+	@mv root-ca.crt root-ca.crt.text
+	@$(OPENSSL) x509 -in root-ca.crt.text -out root-ca.crt
+	@rm root-ca.crt.text
 
 root-ca.der: root-ca.crt
-	$(OPENSSL) x509 -inform PEM -outform DER -in root-ca.crt -out root-ca.der
+	$(OPENSSL) x509 -inform PEM -outform DER -in $? -out $@
 
 root-ca.key.der: root-ca.key
-	$(OPENSSL) rsa -inform PEM -outform DER -in root-ca.key -out root-ca.key.der
+	$(EXPECTHELPER) root-ca key.der
+#	$(OPENSSL) rsa -inform PEM -outform DER -in $? -out $@
 
-root-ca.pub:
-	$(OPENSSL) rsa -pubout -in root-ca.key -out root-ca.pub
+root-ca.pub: root-ca.key
+	$(EXPECTHELPER) root-ca pub
+#	$(OPENSSL) rsa -pubout -in $? -out $@
 
 root-ca.pub.der: root-ca.pub
-	$(OPENSSL) rsa -pubin -in root-ca.pub -pubout -outform DER -out root-ca.pub.der 
+	$(EXPECTHELPER) root-ca pub.der
+#	$(OPENSSL) rsa -pubin -in $? -pubout -outform DER -out $@
 
 .PHONY: root-ca.pkcs11 # Put Root CA certificate and key to PKCS11 token
 root-ca.pkcs11:	root-ca.der root-ca.key.der root-ca.pub.der
-	$(PKCS11TOOL) -y cert -w root-ca.der --label "Arest Root CA Certificate" --attr-from root-ca.der --pin $(PKCS11PIN) -l
-	$(PKCS11TOOL) -y privkey -w root-ca.key.der --label "Arest Root CA Private Key" --attr-from root-ca.der --pin $(PKCS11PIN) -l
-	$(PKCS11TOOL) -y pubkey -w root-ca.pub.der --label "Arest Root CA Public Key" --attr-from root-ca.der --pin $(PKCS11PIN) -l
+	@$(PKCS11TOOL) -y cert -w root-ca.der --label "Arest Root CA Certificate" --attr-from root-ca.der --pin $(PKCS11PIN) -l
+	@$(PKCS11TOOL) -y privkey -w root-ca.key.der --label "Arest Root CA Private Key" --attr-from root-ca.der --pin $(PKCS11PIN) -l
+	@$(PKCS11TOOL) -y pubkey -w root-ca.pub.der --label "Arest Root CA Public Key" --attr-from root-ca.der --pin $(PKCS11PIN) -l
 
-.PHONY: root-ca.crl # Make Root CA certficate revokation list (CRL)
+#.PHONY: root-ca.crl # Make Root CA certficate revokation list (CRL)
 root-ca.crl: root-ca.key
-	$(OPENSSL) gencrl -out root-ca.crl
+	@$(OPENSSL) ca -gencrl -out $@ -passin pass:$(PASSWORD_ROOT_CA) -config root-ca.cnf
 	
+.PHONY: ca-certificates
+ca-certificates:	root-ca.crt
+	$(POST_INSTALL)
+	@cp -f root-ca.crt /usr/share/ca-certificates/ArestInc
+	@dpkg-reconfigure ca-certficates
+	
+.PHONY: install
+install:	install-cert install-key install-crl
+
+install-cert:	$(TARGET-CRT)
+	$(INSTALL) -m 0644 -o root -g root -t $(DESTCERTDIR) $(TARGET-CRT)
+	$(INSTALL) -m 0644 -o root -g root -t $(DESTWWWDIR) $(TARGET-CRT)
+
+install-key:	$(TARGET-KEY)
+	$(INSTALL) -m 0640 -o root -g ssl-cert -t $(DESTKEYDIR) $(TARGET-KEY)
+	 
+install-crl:	$(TARGET-CRL)
+	$(INSTALL) -m 0644 -o root -g root -t $(DESTCERTDIR) $(TARGET-CRL)
 ######################################################################
 #
 #  Miscellaneous rules.
 #
 ######################################################################
-root.index.txt:
+index.txt:
 	@touch index.txt
 
-root.serial:
-	@echo '01' > serial
-
-sub.index.txt:
-	@touch index.txt
-
-sub.serial:
+serial:
 	@echo '01' > serial
 
 print:
@@ -153,8 +164,19 @@ printca:
 printssh:
 	$(PKCS15TOOL)
 
+keymodulus: 
+	@KEYMOD=$($(OPENSSL) rsa -in root-ca.key -noout -modulus)
+	@echo "Keymod=$$KEYMOD"
+
+certmodulus:
+	@CERTMOD=$($(OPENSSL) x509 -in root-ca.crt -noout -modulus)
+	@echo "Certmod=$$CERTMOD"
+
+modulus:  keymodulus certmodulus
+	@diff <$$KEYMOD <$$CERTMOD && echo Modulus equals.
+
 clean:
-	@rm -f *~ *old dh* *.csr *.key *.crt *.p12 *.pub *.der *.key.der *.pub.der *.rsa.pub *.ssh.pub *.pem ca-chain.pem *index.txt* *serial* *\.0 *\.1
+	@rm -f *~ *old dh* *.csr *.key *.crt *.p12 *.pub *.der *.key.der *.pub.der *.rsa.pub *.ssh.pub *.pem *.crl *.crl ca-chain.pem *index.txt* *serial* *\.0 *\.1
 
 #
 #	Make a target that people won't run too often.

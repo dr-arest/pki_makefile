@@ -4,7 +4,7 @@ CN			= arest@arest-home.pp.ua
 default_ca		= CA_default
 
 [ CA_default ]
-dir			= /etc/ssl/FreeradiusCA/sub-ca
+dir			= /etc/ssl/sub-ca
 certs			= $dir
 crl_dir			= $dir/crl
 database		= $dir/index.txt

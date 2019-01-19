@@ -1,29 +1,30 @@
+[ default ]
+CN			= arest@arest-home.pp.ua
 [ ca ]
 default_ca		= CA_default
 
 [ CA_default ]
-dir			= ./
+dir			= /etc/ssl/sub-ca
 certs			= $dir
 crl_dir			= $dir/crl
 database		= $dir/index.txt
 new_certs_dir		= $dir
-certificate		= $dir/ca.pem
+certificate		= $dir/clt.crt
 serial			= $dir/serial
-crl			= $dir/crl.pem
-private_key		= $dir/ca.key
+crl			= $dir/sub-ca.crl
+private_key		= $dir/clt.key
 RANDFILE		= $dir/.rand
 name_opt		= ca_default
 cert_opt		= ca_default
-default_days		= 60
+default_days		= 730
 default_crl_days	= 30
 default_md		= sha256
 preserve		= no
 policy			= policy_match
-crlDistributionPoints	= URI:http://www.example.org/example_ca.crl
 
 [ policy_match ]
 countryName		= match
-stateOrProvinceName	= match
+stateOrProvinceName	= optional
 organizationName	= match
 organizationalUnitName	= optional
 commonName		= supplied
@@ -40,21 +41,13 @@ emailAddress		= optional
 
 [ req ]
 prompt			= no
-distinguished_name	= certificate_authority
+distinguished_name	= client
 default_bits		= 2048
-input_password		= whatever
-output_password		= whatever
-x509_extensions		= v3_ca
+input_password		= Mistake+
+output_password		= Mistake+
 
-[certificate_authority]
-countryName		= UA 
+[client]
+countryName		= UA
 organizationName	= Arest Inc.
-emailAddress		= arest@arest-home.pp.ua
-commonName		= "Arest Root CA"
-
-[v3_ca]
-subjectKeyIdentifier	= hash
-authorityKeyIdentifier	= keyid:always,issuer:always
-basicConstraints	= critical,CA:true
-crlDistributionPoints	= URI:http://pki.arest-home.pp.ua/root-ca.crl
-
+emailAddress		= $ENV::CN
+commonName		= $ENV::CN
